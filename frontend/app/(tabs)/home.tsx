@@ -118,11 +118,19 @@ export default function HomeScreen() {
         </TouchableOpacity>
 
         {/* Image */}
-        <Image
-          source={{ uri: item.image }}
-          style={styles.recipeImage}
-          resizeMode="cover"
-        />
+        <View style={styles.imageContainer}>
+          <Image
+            source={{ uri: item.image }}
+            style={styles.recipeImage}
+            resizeMode="cover"
+          />
+          {item.is_paid && (
+            <View style={styles.paidBadge}>
+              <Ionicons name="lock-closed" size={12} color="#fff" />
+              <Text style={styles.paidText}>${item.price?.toFixed(2)}</Text>
+            </View>
+          )}
+        </View>
 
         {/* Actions */}
         <View style={styles.actions}>
