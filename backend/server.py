@@ -372,6 +372,8 @@ async def create_recipe(
         category=recipe_data.category,
         tags=recipe_data.tags,
         is_featured=current_user["role"] == UserRole.CHEF,
+        is_paid=recipe_data.is_paid,
+        price=recipe_data.price if recipe_data.is_paid else 0.0,
     )
     
     await db.recipes.insert_one(recipe.model_dump())
