@@ -155,6 +155,8 @@ export default function CreateScreen() {
         ingredients: validIngredients,
         steps: validSteps.map((s, i) => ({ ...s, step_number: i + 1 })),
         tags: tags.split(',').map(t => t.trim()).filter(t => t),
+        is_paid: isPaid,
+        price: isPaid ? parseFloat(price) || 0 : 0,
       };
 
       await api.createRecipe(recipeData);
