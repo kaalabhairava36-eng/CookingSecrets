@@ -29,6 +29,8 @@ interface Recipe {
   likes_count: number;
   comments_count: number;
   created_at: string;
+  is_paid?: boolean;
+  price?: number;
 }
 
 const getRoleBadge = (role: string) => {
