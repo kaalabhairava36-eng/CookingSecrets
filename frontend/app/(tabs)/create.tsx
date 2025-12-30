@@ -52,6 +52,8 @@ export default function CreateScreen() {
   const [ingredients, setIngredients] = useState<Ingredient[]>([{ name: '', amount: '', unit: '' }]);
   const [steps, setSteps] = useState<Step[]>([{ step_number: 1, instruction: '' }]);
   const [tags, setTags] = useState('');
+  const [isPaid, setIsPaid] = useState(false);
+  const [price, setPrice] = useState('');
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
