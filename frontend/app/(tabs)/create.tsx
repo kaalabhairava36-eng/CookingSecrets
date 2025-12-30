@@ -296,6 +296,42 @@ export default function CreateScreen() {
             </View>
           </View>
 
+          {/* Pricing */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Pricing</Text>
+            <TouchableOpacity 
+              style={styles.pricingToggle}
+              onPress={() => setIsPaid(!isPaid)}
+            >
+              <View style={styles.pricingToggleLeft}>
+                <Ionicons 
+                  name={isPaid ? "pricetag" : "gift-outline"} 
+                  size={20} 
+                  color={isPaid ? "#4CAF50" : "#FF6B35"} 
+                />
+                <Text style={styles.pricingToggleText}>
+                  {isPaid ? 'Paid Recipe' : 'Free Recipe'}
+                </Text>
+              </View>
+              <View style={[styles.toggleSwitch, isPaid && styles.toggleSwitchActive]}>
+                <View style={[styles.toggleKnob, isPaid && styles.toggleKnobActive]} />
+              </View>
+            </TouchableOpacity>
+            {isPaid && (
+              <View style={styles.priceInputContainer}>
+                <Text style={styles.currencySymbol}>$</Text>
+                <TextInput
+                  style={styles.priceInput}
+                  placeholder="9.99"
+                  placeholderTextColor="#888"
+                  value={price}
+                  onChangeText={setPrice}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+            )}
+          </View>
+
           {/* Ingredients */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
