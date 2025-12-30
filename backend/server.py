@@ -106,6 +106,8 @@ class RecipeCreate(BaseModel):
     difficulty: str  # easy, medium, hard
     category: str
     tags: List[str] = []
+    is_paid: bool = False
+    price: float = 0.0  # Price in dollars if paid
 
 class Recipe(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
