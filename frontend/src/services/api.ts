@@ -187,6 +187,44 @@ class ApiService {
     const response = await this.client.get('/admin/stats');
     return response.data;
   }
+
+  // AI Chatbot
+  async sendChatMessage(message: string, sessionId?: string) {
+    const response = await this.client.post('/chat', { message, session_id: sessionId });
+    return response.data;
+  }
+
+  async getChatHistory(sessionId?: string) {
+    const params = sessionId ? { session_id: sessionId } : {};
+    const response = await this.client.get('/chat/history', { params });
+    return response.data;
+  }
+
+  async getChatSessions() {
+    const response = await this.client.get('/chat/sessions');
+    return response.data;
+  }
+
+  async deleteChatSession(sessionId: string) {
+    const response = await this.client.delete(`/chat/session/${sessionId}`);
+    return response.data;
+  }
+
+  // Recipe Purchase
+  async purchaseRecipe(recipeId: string) {
+    const response = await this.client.post(`/recipes/${recipeId}/purchase`);
+    return response.data;
+  }
+
+  async checkPurchased(recipeId: string) {
+    const response = await this.client.get(`/recipes/${recipeId}/purchased`);
+    return response.data;
+  }
+
+  async getPurchasedRecipes(userId: string) {
+    const response = await this.client.get(`/users/${userId}/purchases`);
+    return response.data;
+  }
 }
 
 export const api = new ApiService();
