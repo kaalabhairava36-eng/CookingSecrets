@@ -130,6 +130,8 @@ class Recipe(BaseModel):
     saves_count: int = 0
     is_featured: bool = False
     is_approved: bool = True
+    is_paid: bool = False
+    price: float = 0.0
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
