@@ -188,11 +188,16 @@ export default function HomeScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Cooking Secret</Text>
-        {user && (user.role === 'admin' || user.role === 'moderator') && (
-          <TouchableOpacity onPress={() => router.push('/admin')}>
-            <Ionicons name="settings-outline" size={24} color="#fff" />
+        <View style={styles.headerActions}>
+          <TouchableOpacity onPress={() => router.push('/chatbot')} style={styles.headerButton}>
+            <Ionicons name="chatbubbles-outline" size={24} color="#FF6B35" />
           </TouchableOpacity>
-        )}
+          {user && (user.role === 'admin' || user.role === 'moderator') && (
+            <TouchableOpacity onPress={() => router.push('/admin')} style={styles.headerButton}>
+              <Ionicons name="shield-checkmark" size={24} color="#FF6B35" />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {recipes.length === 0 ? (
@@ -218,6 +223,14 @@ export default function HomeScreen() {
           contentContainerStyle={styles.listContent}
         />
       )}
+
+      {/* Floating Chatbot Button */}
+      <TouchableOpacity
+        style={styles.floatingChatButton}
+        onPress={() => router.push('/chatbot')}
+      >
+        <Ionicons name="chatbubbles" size={26} color="#fff" />
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }
