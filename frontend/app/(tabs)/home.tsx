@@ -311,10 +311,30 @@ const styles = StyleSheet.create({
   badge: {
     marginLeft: 6,
   },
+  imageContainer: {
+    position: 'relative',
+  },
   recipeImage: {
     width: '100%',
     aspectRatio: 1,
     backgroundColor: '#1a1a1a',
+  },
+  paidBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 16,
+  },
+  paidText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
   },
   actions: {
     flexDirection: 'row',
