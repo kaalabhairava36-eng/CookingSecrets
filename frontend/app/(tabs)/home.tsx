@@ -259,8 +259,15 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#FF6B35',
   },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  headerButton: {
+    padding: 4,
+  },
   listContent: {
-    paddingBottom: 20,
+    paddingBottom: 80,
   },
   card: {
     backgroundColor: '#0c0c0c',
