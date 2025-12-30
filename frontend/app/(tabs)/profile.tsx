@@ -210,6 +210,17 @@ export default function ProfileScreen() {
           <TouchableOpacity style={styles.editButton} onPress={openEditModal}>
             <Text style={styles.editButtonText}>Edit Profile</Text>
           </TouchableOpacity>
+
+          {/* Admin/Moderator Link */}
+          {(user.role === 'admin' || user.role === 'moderator') && (
+            <TouchableOpacity
+              style={styles.adminButton}
+              onPress={() => router.push('/admin')}
+            >
+              <Ionicons name="shield-checkmark" size={18} color="#FF6B35" />
+              <Text style={styles.adminButtonText}>Admin Dashboard</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Recipes Grid */}
