@@ -429,6 +429,20 @@ const styles = StyleSheet.create({
     color: '#FF6B35',
     fontWeight: '600',
   },
+  adminButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 107, 53, 0.15)',
+    gap: 8,
+  },
+  adminButtonText: {
+    color: '#FF6B35',
+    fontWeight: '600',
+  },
   recipesSection: {
     padding: 16,
   },
