@@ -734,6 +734,210 @@ async def get_admin_stats(current_user: dict = Depends(require_role([UserRole.AD
         "role_counts": role_counts
     }
 
+# ============== AI CHATBOT ROUTES ==============
+
+class ChatMessage(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    session_id: str
+    role: str  # 'user' or 'assistant'
+    content: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class ChatRequest(BaseModel):
+    message: str
+    session_id: Optional[str] = None
+
+class ChatResponse(BaseModel):
+    response: str
+    session_id: str
+
+FOOD_SYSTEM_PROMPT = """You are ChefBot, a friendly and knowledgeable AI cooking assistant for the Cooking Secret app. 
+Your expertise includes:
+- Suggesting recipes based on available ingredients
+- Providing cooking tips and techniques
+- Recommending ingredient substitutions
+- Explaining cooking methods and terminology
+- Dietary advice and nutritional information
+- Food pairing suggestions
+- Kitchen equipment recommendations
+
+Guidelines:
+- Be warm, helpful, and encouraging
+- Give concise but informative answers
+- Use cooking emojis sparingly to make responses engaging
+- If asked about non-food topics, politely redirect to cooking-related discussions
+- Always prioritize food safety in your advice"""
+
+@api_router.post("/chat", response_model=ChatResponse)
+async def chat_with_bot(
+    chat_request: ChatRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    session_id = chat_request.session_id or str(uuid.uuid4())
+    
+    # Get API key
+    api_key = os.environ.get('EMERGENT_LLM_KEY')
+    if not api_key:
+        raise HTTPException(status_code=500, detail="AI service not configured")
+    
+    try:
+        # Initialize chat
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=f"{current_user['id']}_{session_id}",
+            system_message=FOOD_SYSTEM_PROMPT
+        ).with_model("openai", "gpt-4.1-mini")
+        
+        # Get conversation history from DB
+        history = await db.chat_messages.find({
+            "user_id": current_user["id"],
+            "session_id": session_id
+        }).sort("created_at", 1).to_list(50)
+        
+        # Add history to chat context
+        for msg in history:
+            if msg["role"] == "user":
+                await chat.send_message(UserMessage(text=msg["content"]))
+        
+        # Send new message
+        user_message = UserMessage(text=chat_request.message)
+        response = await chat.send_message(user_message)
+        
+        # Store messages in DB
+        user_msg = ChatMessage(
+            user_id=current_user["id"],
+            session_id=session_id,
+            role="user",
+            content=chat_request.message
+        )
+        assistant_msg = ChatMessage(
+            user_id=current_user["id"],
+            session_id=session_id,
+            role="assistant",
+            content=response
+        )
+        
+        await db.chat_messages.insert_many([
+            user_msg.model_dump(),
+            assistant_msg.model_dump()
+        ])
+        
+        return ChatResponse(response=response, session_id=session_id)
+    except Exception as e:
+        logger.error(f"Chat error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Chat service error: {str(e)}")
+
+@api_router.get("/chat/history")
+async def get_chat_history(
+    session_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    query = {"user_id": current_user["id"]}
+    if session_id:
+        query["session_id"] = session_id
+    
+    messages = await db.chat_messages.find(query).sort("created_at", 1).to_list(100)
+    return [{"role": m["role"], "content": m["content"], "created_at": m["created_at"]} for m in messages]
+
+@api_router.get("/chat/sessions")
+async def get_chat_sessions(current_user: dict = Depends(get_current_user)):
+    # Get unique session IDs
+    pipeline = [
+        {"$match": {"user_id": current_user["id"]}},
+        {"$group": {"_id": "$session_id", "last_message": {"$last": "$created_at"}}},
+        {"$sort": {"last_message": -1}},
+        {"$limit": 20}
+    ]
+    sessions = await db.chat_messages.aggregate(pipeline).to_list(20)
+    return [{"session_id": s["_id"], "last_message": s["last_message"]} for s in sessions]
+
+@api_router.delete("/chat/session/{session_id}")
+async def delete_chat_session(
+    session_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    result = await db.chat_messages.delete_many({
+        "user_id": current_user["id"],
+        "session_id": session_id
+    })
+    return {"deleted": result.deleted_count}
+
+# ============== RECIPE PURCHASE ROUTES ==============
+
+class Purchase(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    recipe_id: str
+    amount: float
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+@api_router.post("/recipes/{recipe_id}/purchase")
+async def purchase_recipe(
+    recipe_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    recipe = await db.recipes.find_one({"id": recipe_id})
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    
+    if not recipe.get("is_paid", False):
+        raise HTTPException(status_code=400, detail="This recipe is free")
+    
+    # Check if already purchased
+    existing = await db.purchases.find_one({
+        "user_id": current_user["id"],
+        "recipe_id": recipe_id
+    })
+    if existing:
+        return {"purchased": True, "message": "Already purchased"}
+    
+    # Create purchase record (in production, integrate with payment gateway)
+    purchase = Purchase(
+        user_id=current_user["id"],
+        recipe_id=recipe_id,
+        amount=recipe.get("price", 0)
+    )
+    await db.purchases.insert_one(purchase.model_dump())
+    
+    return {"purchased": True, "message": "Recipe purchased successfully"}
+
+@api_router.get("/recipes/{recipe_id}/purchased")
+async def check_purchased(
+    recipe_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    recipe = await db.recipes.find_one({"id": recipe_id})
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    
+    # Free recipes or author's own recipes are accessible
+    if not recipe.get("is_paid", False) or recipe["author_id"] == current_user["id"]:
+        return {"purchased": True, "is_free": not recipe.get("is_paid", False)}
+    
+    # Admin and moderators can access all
+    if current_user["role"] in [UserRole.ADMIN, UserRole.MODERATOR]:
+        return {"purchased": True, "is_free": False}
+    
+    existing = await db.purchases.find_one({
+        "user_id": current_user["id"],
+        "recipe_id": recipe_id
+    })
+    return {"purchased": existing is not None, "is_free": False}
+
+@api_router.get("/users/{user_id}/purchases")
+async def get_user_purchases(
+    user_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    if user_id != current_user["id"] and current_user["role"] != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Can only view your own purchases")
+    
+    purchases = await db.purchases.find({"user_id": user_id}).to_list(1000)
+    recipe_ids = [p["recipe_id"] for p in purchases]
+    recipes = await db.recipes.find({"id": {"$in": recipe_ids}}).to_list(1000)
+    return [Recipe(**r) for r in recipes]
+
 # Include the router in the main app
 app.include_router(api_router)
 
