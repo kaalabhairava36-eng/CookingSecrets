@@ -202,6 +202,18 @@ export default function HomeScreen() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Cooking Secret</Text>
         <View style={styles.headerActions}>
+          <TouchableOpacity onPress={() => router.push('/notifications')} style={styles.headerButton}>
+            <View>
+              <Ionicons name="notifications-outline" size={24} color="#fff" />
+              {unreadCount > 0 && (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationBadgeText}>
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
           <TouchableOpacity onPress={() => router.push('/chatbot')} style={styles.headerButton}>
             <Ionicons name="chatbubbles-outline" size={24} color="#FF6B35" />
           </TouchableOpacity>
