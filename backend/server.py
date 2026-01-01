@@ -941,6 +941,439 @@ async def get_user_purchases(
     recipes = await db.recipes.find({"id": {"$in": recipe_ids}}).to_list(1000)
     return [Recipe(**r) for r in recipes]
 
+# ============== MOCKED STRIPE PAYMENT ROUTES ==============
+# NOTE: This is a MOCKED payment system for development/demo purposes
+# In production, replace with real Stripe integration
+
+class PaymentIntentRequest(BaseModel):
+    recipe_id: str
+
+class PaymentIntentResponse(BaseModel):
+    client_secret: str
+    payment_intent_id: str
+    amount: int
+    currency: str = "usd"
+
+class ConfirmPaymentRequest(BaseModel):
+    payment_intent_id: str
+    card_last_four: str = "4242"
+
+@api_router.post("/payments/create-intent", response_model=PaymentIntentResponse)
+async def create_payment_intent(
+    request: PaymentIntentRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a MOCKED payment intent for recipe purchase"""
+    recipe = await db.recipes.find_one({"id": request.recipe_id})
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    
+    if not recipe.get("is_paid", False):
+        raise HTTPException(status_code=400, detail="This recipe is free")
+    
+    # Check if already purchased
+    existing = await db.purchases.find_one({
+        "user_id": current_user["id"],
+        "recipe_id": request.recipe_id
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail="Recipe already purchased")
+    
+    # Generate mock payment intent
+    payment_intent_id = f"pi_mock_{uuid.uuid4().hex[:24]}"
+    client_secret = f"{payment_intent_id}_secret_{uuid.uuid4().hex[:24]}"
+    amount = int(recipe.get("price", 0) * 100)  # Convert to cents
+    
+    # Store payment intent in database
+    await db.payment_intents.insert_one({
+        "id": payment_intent_id,
+        "client_secret": client_secret,
+        "user_id": current_user["id"],
+        "recipe_id": request.recipe_id,
+        "amount": amount,
+        "status": "requires_payment_method",
+        "created_at": datetime.utcnow()
+    })
+    
+    return PaymentIntentResponse(
+        client_secret=client_secret,
+        payment_intent_id=payment_intent_id,
+        amount=amount
+    )
+
+@api_router.post("/payments/confirm")
+async def confirm_payment(
+    request: ConfirmPaymentRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Confirm a MOCKED payment (simulates successful payment)"""
+    payment_intent = await db.payment_intents.find_one({"id": request.payment_intent_id})
+    if not payment_intent:
+        raise HTTPException(status_code=404, detail="Payment intent not found")
+    
+    if payment_intent["user_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    
+    if payment_intent["status"] == "succeeded":
+        raise HTTPException(status_code=400, detail="Payment already completed")
+    
+    # Simulate payment processing (MOCKED - always succeeds)
+    await db.payment_intents.update_one(
+        {"id": request.payment_intent_id},
+        {"$set": {"status": "succeeded", "completed_at": datetime.utcnow()}}
+    )
+    
+    # Create purchase record
+    purchase = Purchase(
+        user_id=current_user["id"],
+        recipe_id=payment_intent["recipe_id"],
+        amount=payment_intent["amount"] / 100
+    )
+    await db.purchases.insert_one(purchase.model_dump())
+    
+    return {
+        "success": True,
+        "message": "Payment successful! (MOCKED)",
+        "payment_intent_id": request.payment_intent_id,
+        "card_last_four": request.card_last_four
+    }
+
+@api_router.get("/payments/config")
+async def get_payment_config():
+    """Get payment configuration (MOCKED)"""
+    return {
+        "publishable_key": "pk_test_mock_key_for_demo",
+        "is_mocked": True,
+        "message": "Using mocked payment system. Add real Stripe keys for production."
+    }
+
+# ============== PUSH NOTIFICATIONS ROUTES ==============
+
+class PushToken(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    token: str
+    platform: str  # ios, android, web
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+class RegisterTokenRequest(BaseModel):
+    expo_push_token: str
+    platform: str = "unknown"
+
+class Notification(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str  # recipient
+    actor_id: str  # who triggered
+    actor_username: str
+    type: str  # follow, like, comment
+    message: str
+    target_id: Optional[str] = None  # recipe_id for like/comment
+    target_title: Optional[str] = None
+    is_read: bool = False
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
+
+async def send_push_notification(tokens: List[str], title: str, body: str, data: dict = None):
+    """Send push notification via Expo Push Service"""
+    if not tokens:
+        return
+    
+    messages = []
+    for token in tokens:
+        if token and token.startswith("ExponentPushToken"):
+            messages.append({
+                "to": token,
+                "title": title,
+                "body": body,
+                "sound": "default",
+                "data": data or {}
+            })
+    
+    if not messages:
+        return
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                EXPO_PUSH_URL,
+                json=messages,
+                headers={"Content-Type": "application/json"}
+            )
+            logger.info(f"Push notification sent: {response.status_code}")
+    except Exception as e:
+        logger.error(f"Failed to send push notification: {str(e)}")
+
+async def get_user_push_tokens(user_id: str) -> List[str]:
+    """Get all active push tokens for a user"""
+    tokens = await db.push_tokens.find({
+        "user_id": user_id,
+        "is_active": True
+    }).to_list(10)
+    return [t["token"] for t in tokens]
+
+async def create_notification(
+    user_id: str,
+    actor_id: str,
+    actor_username: str,
+    notification_type: str,
+    message: str,
+    target_id: str = None,
+    target_title: str = None
+):
+    """Create notification in database and send push"""
+    notification = Notification(
+        user_id=user_id,
+        actor_id=actor_id,
+        actor_username=actor_username,
+        type=notification_type,
+        message=message,
+        target_id=target_id,
+        target_title=target_title
+    )
+    await db.notifications.insert_one(notification.model_dump())
+    
+    # Send push notification
+    tokens = await get_user_push_tokens(user_id)
+    title_map = {
+        "follow": "New Follower",
+        "like": "Recipe Liked",
+        "comment": "New Comment"
+    }
+    await send_push_notification(
+        tokens=tokens,
+        title=title_map.get(notification_type, "Notification"),
+        body=message,
+        data={"type": notification_type, "target_id": target_id}
+    )
+
+@api_router.post("/push-tokens/register")
+async def register_push_token(
+    request: RegisterTokenRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Register or update push token for user"""
+    # Check if token already exists
+    existing = await db.push_tokens.find_one({"token": request.expo_push_token})
+    
+    if existing:
+        # Update existing token
+        await db.push_tokens.update_one(
+            {"token": request.expo_push_token},
+            {"$set": {
+                "user_id": current_user["id"],
+                "is_active": True,
+                "updated_at": datetime.utcnow()
+            }}
+        )
+    else:
+        # Create new token
+        push_token = PushToken(
+            user_id=current_user["id"],
+            token=request.expo_push_token,
+            platform=request.platform
+        )
+        await db.push_tokens.insert_one(push_token.model_dump())
+    
+    return {"success": True, "message": "Push token registered"}
+
+@api_router.delete("/push-tokens/unregister")
+async def unregister_push_token(
+    token: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Unregister push token"""
+    await db.push_tokens.update_one(
+        {"token": token, "user_id": current_user["id"]},
+        {"$set": {"is_active": False}}
+    )
+    return {"success": True}
+
+@api_router.get("/notifications")
+async def get_notifications(
+    skip: int = 0,
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get user's notifications"""
+    notifications = await db.notifications.find({
+        "user_id": current_user["id"]
+    }).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    return notifications
+
+@api_router.get("/notifications/unread-count")
+async def get_unread_count(current_user: dict = Depends(get_current_user)):
+    """Get count of unread notifications"""
+    count = await db.notifications.count_documents({
+        "user_id": current_user["id"],
+        "is_read": False
+    })
+    return {"count": count}
+
+@api_router.put("/notifications/mark-read")
+async def mark_notifications_read(
+    notification_ids: List[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Mark notifications as read"""
+    query = {"user_id": current_user["id"]}
+    if notification_ids:
+        query["id"] = {"$in": notification_ids}
+    
+    await db.notifications.update_many(query, {"$set": {"is_read": True}})
+    return {"success": True}
+
+@api_router.put("/notifications/mark-all-read")
+async def mark_all_read(current_user: dict = Depends(get_current_user)):
+    """Mark all notifications as read"""
+    await db.notifications.update_many(
+        {"user_id": current_user["id"]},
+        {"$set": {"is_read": True}}
+    )
+    return {"success": True}
+
+# Update follow route to send notification
+@api_router.post("/users/{user_id}/follow/notify")
+async def follow_user_with_notification(
+    user_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user)
+):
+    """Follow user and send notification"""
+    if user_id == current_user["id"]:
+        raise HTTPException(status_code=400, detail="Cannot follow yourself")
+    
+    existing = await db.follows.find_one({
+        "follower_id": current_user["id"],
+        "following_id": user_id
+    })
+    
+    if existing:
+        # Unfollow
+        await db.follows.delete_one({"id": existing["id"]})
+        await db.users.update_one({"id": current_user["id"]}, {"$inc": {"following_count": -1}})
+        await db.users.update_one({"id": user_id}, {"$inc": {"followers_count": -1}})
+        return {"following": False, "message": "Unfollowed"}
+    else:
+        # Follow
+        follow = Follow(
+            follower_id=current_user["id"],
+            following_id=user_id
+        )
+        await db.follows.insert_one(follow.model_dump())
+        await db.users.update_one({"id": current_user["id"]}, {"$inc": {"following_count": 1}})
+        await db.users.update_one({"id": user_id}, {"$inc": {"followers_count": 1}})
+        
+        # Send notification in background
+        background_tasks.add_task(
+            create_notification,
+            user_id=user_id,
+            actor_id=current_user["id"],
+            actor_username=current_user["username"],
+            notification_type="follow",
+            message=f"@{current_user['username']} started following you"
+        )
+        
+        return {"following": True, "message": "Following"}
+
+# Update like route to send notification
+@api_router.post("/recipes/{recipe_id}/like/notify")
+async def like_recipe_with_notification(
+    recipe_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user)
+):
+    """Like recipe and send notification"""
+    recipe = await db.recipes.find_one({"id": recipe_id})
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    
+    existing = await db.likes.find_one({
+        "recipe_id": recipe_id,
+        "user_id": current_user["id"]
+    })
+    
+    if existing:
+        # Unlike
+        await db.likes.delete_one({"id": existing["id"]})
+        await db.recipes.update_one(
+            {"id": recipe_id},
+            {"$inc": {"likes_count": -1}}
+        )
+        return {"liked": False, "message": "Recipe unliked"}
+    else:
+        # Like
+        like = Like(
+            recipe_id=recipe_id,
+            user_id=current_user["id"]
+        )
+        await db.likes.insert_one(like.model_dump())
+        await db.recipes.update_one(
+            {"id": recipe_id},
+            {"$inc": {"likes_count": 1}}
+        )
+        
+        # Send notification to recipe author (if not self)
+        if recipe["author_id"] != current_user["id"]:
+            background_tasks.add_task(
+                create_notification,
+                user_id=recipe["author_id"],
+                actor_id=current_user["id"],
+                actor_username=current_user["username"],
+                notification_type="like",
+                message=f"@{current_user['username']} liked your recipe \"{recipe['title']}\"",
+                target_id=recipe_id,
+                target_title=recipe["title"]
+            )
+        
+        return {"liked": True, "message": "Recipe liked"}
+
+# Update comment route to send notification
+@api_router.post("/recipes/{recipe_id}/comments/notify", response_model=Comment)
+async def create_comment_with_notification(
+    recipe_id: str,
+    comment_data: CommentCreate,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user)
+):
+    """Create comment and send notification"""
+    recipe = await db.recipes.find_one({"id": recipe_id})
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    
+    comment = Comment(
+        recipe_id=recipe_id,
+        user_id=current_user["id"],
+        username=current_user["username"],
+        user_profile_image=current_user.get("profile_image"),
+        text=comment_data.text
+    )
+    
+    await db.comments.insert_one(comment.model_dump())
+    await db.recipes.update_one(
+        {"id": recipe_id},
+        {"$inc": {"comments_count": 1}}
+    )
+    
+    # Send notification to recipe author (if not self)
+    if recipe["author_id"] != current_user["id"]:
+        preview = comment_data.text[:50] + "..." if len(comment_data.text) > 50 else comment_data.text
+        background_tasks.add_task(
+            create_notification,
+            user_id=recipe["author_id"],
+            actor_id=current_user["id"],
+            actor_username=current_user["username"],
+            notification_type="comment",
+            message=f"@{current_user['username']} commented: \"{preview}\"",
+            target_id=recipe_id,
+            target_title=recipe["title"]
+        )
+    
+    return comment
+
 # Include the router in the main app
 app.include_router(api_router)
 
