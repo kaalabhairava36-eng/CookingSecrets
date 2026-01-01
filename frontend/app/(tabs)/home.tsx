@@ -52,6 +52,7 @@ export default function HomeScreen() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const fetchFeed = async () => {
     try {
@@ -72,7 +73,19 @@ export default function HomeScreen() {
     }
   };
 
+  const fetchUnreadCount = async () => {
+    try {
+      const data = await api.getUnreadNotificationCount();
+      setUnreadCount(data.count);
+    } catch (error) {
+      console.error('Error fetching unread count:', error);
+    }
+  };
+
   useEffect(() => {
+    fetchFeed();
+    fetchUnreadCount();
+  }, []);
     fetchFeed();
   }, []);
 
