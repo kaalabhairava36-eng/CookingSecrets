@@ -225,6 +225,77 @@ class ApiService {
     const response = await this.client.get(`/users/${userId}/purchases`);
     return response.data;
   }
+
+  // Payment (MOCKED)
+  async createPaymentIntent(recipeId: string) {
+    const response = await this.client.post('/payments/create-intent', { recipe_id: recipeId });
+    return response.data;
+  }
+
+  async confirmPayment(paymentIntentId: string, cardLastFour: string = '4242') {
+    const response = await this.client.post('/payments/confirm', {
+      payment_intent_id: paymentIntentId,
+      card_last_four: cardLastFour
+    });
+    return response.data;
+  }
+
+  async getPaymentConfig() {
+    const response = await this.client.get('/payments/config');
+    return response.data;
+  }
+
+  // Push Notifications
+  async registerPushToken(expoPushToken: string, platform: string) {
+    const response = await this.client.post('/push-tokens/register', {
+      expo_push_token: expoPushToken,
+      platform
+    });
+    return response.data;
+  }
+
+  async unregisterPushToken(token: string) {
+    const response = await this.client.delete('/push-tokens/unregister', { params: { token } });
+    return response.data;
+  }
+
+  async getNotifications(skip: number = 0, limit: number = 50) {
+    const response = await this.client.get('/notifications', { params: { skip, limit } });
+    return response.data;
+  }
+
+  async getUnreadNotificationCount() {
+    const response = await this.client.get('/notifications/unread-count');
+    return response.data;
+  }
+
+  async markNotificationsRead(notificationIds?: string[]) {
+    const response = await this.client.put('/notifications/mark-read', notificationIds);
+    return response.data;
+  }
+
+  async markAllNotificationsRead() {
+    const response = await this.client.put('/notifications/mark-all-read');
+    return response.data;
+  }
+
+  // Follow with notification
+  async followUserWithNotification(userId: string) {
+    const response = await this.client.post(`/users/${userId}/follow/notify`);
+    return response.data;
+  }
+
+  // Like with notification
+  async likeRecipeWithNotification(recipeId: string) {
+    const response = await this.client.post(`/recipes/${recipeId}/like/notify`);
+    return response.data;
+  }
+
+  // Comment with notification
+  async createCommentWithNotification(recipeId: string, text: string) {
+    const response = await this.client.post(`/recipes/${recipeId}/comments/notify`, { text });
+    return response.data;
+  }
 }
 
 export const api = new ApiService();
